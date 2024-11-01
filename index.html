@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watermark Removal Tool</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; }
+    #imageCanvas { border: 1px solid #ddd; margin-top: 10px; }
+    .button { padding: 10px 15px; cursor: pointer; }
+  </style>
+  <!-- Firebase SDKs (Compat mode) -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-functions-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+</head>
+<body>
+  <h1>Watermark Removal Tool</h1>
+  <input type="file" id="upload" accept="image/*" style="margin-top: 20px;" />
+  <canvas id="imageCanvas" width="500" height="500"></canvas>
+  <button id="processBtn" class="button" style="display: none;">Remove Watermark</button>
+
+  <script>
+    // Firebase Configurations
+    const firebaseConfig = {
+        apiKey: "AIzaSyCNyZAmw3D8aCqNOHOw0f3YKtZWNatauN8",
+  authDomain: "hello-4105a.firebaseapp.com",
+  databaseURL: "https://hello-4105a-default-rtdb.firebaseio.com",
+  projectId: "hello-4105a",
+  storageBucket: "hello-4105a.appspot.com",
+  messagingSenderId: "978669199403",
+  appId: "1:978669199403:web:6c20e3dbaf815bba890a6e",
+  measurementId: "G-2TGPP3E88X"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const storage = firebase.storage();
+    const functions = firebase.functions();
+
+    // Elements
+    const upload = document.getElementById("upload");
+    const processBtn = document.getElementById("processBtn");
+    const canvas = new fabric.Canvas('imageCanvas');
+    let uploadedImage = null;
+    let selectionBox = null;
+
+    // Upload Image Event
+    upload.addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          fabric.Image.fromURL(e.target.result, (img) => {
+            canvas.clear();
+            img.scaleToWidth(canvas.width);
+            img.scaleToHeight(canvas.height);
+            canvas.add(img);
+            uploadedImage = img;
+          });
+        };
+        reader.readAsDataURL(file);
+        processBtn.style.display = "inline-block";
+      }
+    });
+
+    // Add Resizable Selection Box on Click
+    canvas.on('mouse:down', (event) => {
+      if (uploadedImage) {
+        const pointer = canvas.getPointer(event.e);
+
+        // Remove the existing selection box if present
+        if (selectionBox) {
+          canvas.remove(selectionBox);
+        }
+
+        // Create a new selection box
+        selectionBox = new fabric.Rect({
+          left: pointer.x,
+          top: pointer.y,
+          width: 100,
+          height: 50,
+          fill: 'rgba(255, 0, 0, 0.3)',
+          borderColor: 'red',
+          cornerColor: 'red',
+          hasControls: true,
+          lockRotation: true
+        });
+
+        // Add the selection box to the canvas and make it active for resizing
+        canvas.add(selectionBox);
+        canvas.setActiveObject(selectionBox);
+      }
+    });
+
+    // Process Watermark Removal
+    processBtn.addEventListener("click", async () => {
+      if (!uploadedImage || !selectionBox) {
+        alert("Please upload an image and select the watermark region.");
+        return;
+      }
+
+      // Convert selected area to image coordinates
+      const selectionCoords = {
+        x: selectionBox.left / uploadedImage.scaleX,
+        y: selectionBox.top / uploadedImage.scaleY,
+        width: selectionBox.width / uploadedImage.scaleX,
+        height: selectionBox.height / uploadedImage.scaleY
+      };
+
+      // Save the image to Firebase Storage
+      const imageBlob = await fetch(uploadedImage.toDataURL()).then(res => res.blob());
+      const storageRef = storage.ref().child(`uploads/${Date.now()}_image.png`);
+      await storageRef.put(imageBlob);
+
+      // Call Firebase Function to process watermark removal
+      const imageUrl = await storageRef.getDownloadURL();
+      const removeWatermark = functions.httpsCallable('removeWatermark');
+      const result = await removeWatermark({ imageUrl, selectionCoords });
+
+      // Display Result
+      const editedImageUrl = result.data.editedImageUrl;
+      const img = new Image();
+      img.src = editedImageUrl;
+      img.onload = () => {
+        canvas.clear();
+        fabric.Image.fromURL(editedImageUrl, (img) => {
+          img.scaleToWidth(canvas.width);
+          img.scaleToHeight(canvas.height);
+          canvas.add(img);
+        });
+      };
+    });
+    
+  </script>
+</body>
+</html>
